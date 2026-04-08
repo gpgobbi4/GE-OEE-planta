@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Análisis Gestión de Planta CPRII - MultiArchivo</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a2a6c">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+      }
+    </script>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        :root { 
+            --primary: #1a2a6c; --bg: #f0f2f5; 
+            --success: #27ae60; --danger: #e74c3c;
+            --m: #f1c40f; --t: #e67e22; --n: #2c3e50;
+            --accent: #3498db;
+        }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: var(--bg); color: #333; font-size: 0.9rem; }
+        header { background: var(--primary); color: white; padding: 15px; text-align: center; }
+        .controls-bar { background: #fff; padding: 15px; display: flex; justify-content: center; gap: 20px; align-items: center; border-bottom: 2px solid #ddd; position: sticky; top: 0; z-index: 1000; flex-wrap: wrap; }
+        .date-filter { padding: 8px 15px; border-radius: 6px; border: 2px solid var(--primary); font-weight: bold; color: var(--primary); cursor: pointer; }
+        
+        .btn-reservorio { background: var(--accent); color: white; border: none; padding: 8px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        
+        .btn-reset { background: white; color: var(--danger); border: 2px solid var(--danger); padding: 8px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .btn-reset:hover { background: var(--danger); color: white; }
+        .tabs { display: flex; justify-content: center; background: #fff; border-bottom: 2px solid #ddd; position: sticky; top: 72px; z-index: 100; }
+        .tab-btn { padding: 12px 20px; cursor: pointer; border: none; background: none; font-weight: bold; color: #666; font-size: 0.85rem; }
+        .tab-btn.active { color: var(--primary); border-bottom: 4px solid var(--primary); background: #f8f9fa; }
+        .container { padding: 15px; max-width: 1300px; margin: auto; }
+        .content { display: none; } .content.active { display: block; }
+        
+        .kpi-main { background: white; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 2px solid var(--primary); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .kpi-main .value { font-size: 3rem; font-weight: bold; color: var(--primary); }
+        .section-title { margin: 20px 0 10px; font-weight: bold; color: #555; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        .grid-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .card { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+        .card.turno-m { border-top: 5px solid var(--m); } .card.turno-t { border-top: 5px solid var(--t); } .card.turno-n { border-top: 5px solid var(--n); }
+        .card.ceco-card { border-top: 5px solid var(--accent); }
+        .card h3 { font-size: 0.75rem; margin: 5px 0; color: #666; text-transform: uppercase; }
+        .card .value { font-size: 1.5rem; font-weight: bold; }
+
+        .logic-box { background: #ebf8ff; border: 1px solid #90cdf4; padding: 20px; border-radius: 8px; margin-bottom: 20px; color: #2c5282; }
+        .logic-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .formula-item { font-family: 'Courier New', monospace; background: white; padding: 10px; border-radius: 4px; border: 1px solid #bee3f8; }
+
+        .ceco-group { margin-bottom: 10px; border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); scroll-margin-top: 150px; transition: background-color 0.5s ease; }
+        .ceco-header { background: #f8f9fa; padding: 12px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; border-left: 5px solid var(--accent); }
+        .ceco-header:hover { background: #edf2f7; }
+        .ceco-content { display: none; padding: 10px; overflow-x: auto; }
+        .ceco-content.open { display: block; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; }
+        th { background: #f8f9fa; position: sticky; top: 0; }
+
+        .highlight-select { background-color: #e0f2fe !important; animation: pulse-highlight 1.5s ease-out; }
+        @keyframes pulse-highlight { 0% { background-color: #e0f2fe; } 50% { background-color: #bae6fd; } 100% { background-color: #e0f2fe; } }
+
+        .js-plotly-plot .plotly .draglayer .nsewdrag { cursor: pointer !important; }
+        .js-plotly-plot .plotly .point { cursor: pointer !important; }
+        
+        .status-msg { font-size: 0.8rem; color: var(--success); font-weight: bold; margin-left: 10px; }
+    </style>
+</head>
+<body>
+
+<header><h1>Análisis Gestión de Planta CPRII</h1></header>
+
+<div class="controls-bar">
+    <div><strong>Subir Local:</strong> <input type="file" id="upload" accept=".xlsx, .xls" multiple /> <span id="file-count" class="status-msg"></span></div>
+    
+    <div>
+        <strong>Reservorio:</strong> 
+        <input type="date" id="fecha-reservorio" class="date-filter">
+        <button class="btn-reservorio" onclick="cargarDesdeReservorio()">📥 Cargar y Sumar</button>
+    </div>
+
+    <div><strong>Vista:</strong> <select id="fecha-selector" class="date-filter" onchange="aplicarFiltro()"><option value="ALL">CONSOLIDADO TOTAL</option></select></div>
+    <button class="btn-reset" onclick="resetearDatos()">🗑️ Limpiar Todo</button>
+</div>
+
+<div class="tabs">
+    <button class="tab-btn active" onclick="showTab(event, 'tab-directorio')">🚀 DASHBOARD INTERACTIVO</button>
+    <button class="tab-btn" onclick="showTab(event, 'tab-memoria')">🧮 MEMORIA DE CÁLCULO</button>
+    <button class="tab-btn" onclick="showTab(event, 'tab-tabla')">📋 TABLA ACUMULADA</button>
+</div>
+
+<div class="container">
+    <div id="tab-directorio" class="content active">
+        <div class="kpi-main">
+            <h3>OEE GLOBAL ACUMULADO</h3>
+            <div id="dir-oee" class="value">0%</div>
+        </div>
+
+        <div class="section-title">OEE POR TURNO (TOTALIZADO)</div>
+        <div class="grid-kpis">
+            <div class="card turno-m"><h3>Mañana</h3><div id="oee-m" class="value">0%</div></div>
+            <div class="card turno-t"><h3>Tarde</h3><div id="oee-t" class="value">0%</div></div>
+            <div class="card turno-n"><h3>Noche</h3><div id="oee-n" class="value">0%</div></div>
+        </div>
+
+        <div class="section-title">OEE POR CENTRO DE COSTO</div>
+        <div id="grid-ceco-kpis" class="grid-kpis"></div>
+        
+        <div class="card" id="grafico-ceco-oee" style="min-height:400px; margin-bottom: 20px;"></div>
+        <div class="card" id="grafico-ceco-ge" style="min-height:400px; margin-bottom: 20px;"></div>
+        
+        <div class="section-title">DETALLE POR LÍNEA</div>
+        <div id="contenedor-acordeon"></div>
+    </div>
+
+    <div id="tab-memoria" class="content">
+        <div class="logic-box">
+            <h4>Lógica de Cálculos Aplicada</h4>
+            <div class="logic-grid">
+                <div>
+                    <p><strong>1. Eficiencia OEE (%):</strong> Mide el rendimiento sobre el tiempo neto de operación (6.5 horas).</p>
+                    <div class="formula-item">OEE = (Producido * 8) / (Lote Nominal * 6.5)</div>
+                </div>
+                <div>
+                    <p><strong>2. Eficiencia GE (%):</strong> Grado de Efectividad sobre la jornada total (8 horas).</p>
+                    <div class="formula-item">GE = (Producido / (Lote Nominal / 8)) / 8</div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <table id="tabla-memoria-calculo">
+                <thead>
+                    <tr><th>Fecha</th><th>OT</th><th>Turno</th><th>Ctro. Costo</th><th>Nominal</th><th>Producido</th><th style="background:#e0f2fe">OEE %</th><th style="background:#fef3c7">GE %</th></tr>
+                </thead>
+                <tbody id="body-memoria"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="tab-tabla" class="content">
+        <div id="out-tabla" style="overflow-x:auto; background:white; padding:10px; border-radius:8px;">Suba uno o más archivos para comenzar...</div>
+    </div>
+</div>
+
+<script>
+    let rawDataStore = []; 
+
+    const USUARIO = "gpgobbi4";
+    const REPO = "OEE-y-GE-Planta-RII";
+
+    async function cargarDesdeReservorio() {
+        const fechaInput = document.getElementById('fecha-reservorio').value;
+        if(!fechaInput) { alert("Elige una fecha."); return; }
+
+        const partes = fechaInput.split("-"); // [2026, 03, 03]
+        const anio = partes[0];
+        const mesNum = partes[1];
+        const dia = partes[2];
+        
+        const meses = ["01_Enero", "02_Febrero", "03_Marzo", "04_Abril", "05_Mayo", "06_Junio", "07_Julio", "08_Agosto", "09_Septiembre", "10_Octubre", "11_Noviembre", "12_Diciembre"];
+        const nombreMes = meses[parseInt(mesNum) - 1];
+        
+        // CORRECCIÓN DE RUTA: Eliminada la carpeta /main/ y ajustado el orden estricto
+        const filename = `${dia}-${mesNum}-${anio}.xlsx`;
+        const url = `https://raw.githubusercontent.com/${USUARIO}/${REPO}/main/data/${anio}/${nombreMes}/${filename}`;
+
+        document.getElementById('file-count').innerText = "⌛ Buscando...";
+
+        try {
+            const response = await fetch(url);
+            if(!response.ok) throw new Error("Archivo no encontrado en el servidor.");
+            
+            const buffer = await response.arrayBuffer();
+            const data = new Uint8Array(buffer);
+            const wb = XLSX.read(data, {type: 'array', cellDates: true});
+            const sheet = wb.Sheets["CPRII"];
+            
+            if(!sheet) throw new Error("La hoja 'CPRII' no existe en este archivo.");
+
+            const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: true, defval: ""});
+            procesarFilasDirecto(rows); 
+            
+            document.getElementById('file-count').innerText = `✅ Cargado: ${filename}`;
+            actualizarSelector();
+            aplicarFiltro();
+        } catch (e) {
+            alert(`Error: No se encontró el archivo en la ruta:\n${url}`);
+            document.getElementById('file-count').innerText = "❌ Error.";
+        }
+    }
+
+    function procesarFilasDirecto(rows) {
+        rows.slice(1).forEach(r => {
+            if (r.length > 10) {
+                let nArt = String(r[12]).trim();
+                if (/^\d+$/.test(nArt)) {
+                    let tn = (r[8] == "1") ? "MAÑANA" : (r[8] == "2") ? "TARDE" : (r[8] == "3") ? "NOCHE" : "S/D";
+                    rawDataStore.push({
+                        fecha: r[7], turno: tn, sap: parseFloat(r[10]) || 0, 
+                        ot: r[11], n_art: nArt, articulo: r[13], nom: parseFloat(r[21]) || 0,
+                        ceco: r[46] || "SIN ASIGNAR"
+                    });
+                }
+            }
+        });
+    }
+
+    function showTab(e, id) {
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        if(e) e.currentTarget.classList.add('active');
+        window.dispatchEvent(new Event('resize'));
+    }
+
+    function toggleCeco(id) {
+        const content = document.getElementById(id);
+        if(content) content.classList.toggle('open');
+    }
+
+    function resetearDatos() {
+        rawDataStore = [];
+        document.getElementById('file-count').innerText = "";
+        document.getElementById('fecha-selector').innerHTML = '<option value="ALL">CONSOLIDADO TOTAL</option>';
+        aplicarFiltro();
+        alert("Datos limpiados.");
+    }
+
+    document.getElementById('upload').addEventListener('change', async function(e) {
+        const files = e.target.files;
+        if (files.length === 0) return;
+        for (let file of files) {
+            await procesarArchivo(file);
+        }
+        document.getElementById('file-count').innerText = `✅ Datos cargados correctamente.`;
+        actualizarSelector();
+        aplicarFiltro();
+        e.target.value = ""; 
+    });
+
+    function procesarArchivo(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const data = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(data, {type: 'array', cellDates: true});
+                const sheet = wb.Sheets["CPRII"];
+                if(!sheet) { resolve(); return; }
+                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: true, defval: ""});
+                procesarFilasDirecto(rows);
+                resolve();
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    function actualizarSelector() {
+        const selector = document.getElementById('fecha-selector');
+        const fechas = [...new Set(rawDataStore.map(d => d.fecha instanceof Date ? d.fecha.toLocaleDateString() : d.fecha))];
+        fechas.sort((a,b) => new Date(a) - new Date(b));
+        selector.innerHTML = '<option value="ALL">CONSOLIDADO TOTAL</option>';
+        fechas.forEach(f => selector.innerHTML += `<option value="${f}">${f}</option>`);
+    }
+
+    function aplicarFiltro() {
+        const filtro = document.getElementById('fecha-selector').value;
+        const data = filtro === "ALL" ? rawDataStore : rawDataStore.filter(d => (d.fecha instanceof Date ? d.fecha.toLocaleDateString() : d.fecha) === filtro);
+        procesarInformacion(data);
+        renderTablaOriginal(data);
+    }
+
+    const calcOEE = (nom, prod) => nom > 0 ? ((prod * 8) / (nom * 6.5)) * 100 : 0;
+    const calcGE = (nom, prod) => nom > 0 ? (prod / (nom / 8) / 8) * 100 : 0;
+
+    function procesarInformacion(data) {
+        const bodyMem = document.getElementById('body-memoria');
+        const acordeon = document.getElementById('contenedor-acordeon');
+        const gridCecoKpis = document.getElementById('grid-ceco-kpis');
+        bodyMem.innerHTML = ""; acordeon.innerHTML = ""; gridCecoKpis.innerHTML = "";
+        
+        if(data.length === 0) {
+            document.getElementById('dir-oee').innerText = "0%";
+            return;
+        }
+
+        let globalNom = 0, globalProd = 0;
+        let tStats = { "MAÑANA": {n:0, p:0}, "TARDE": {n:0, p:0}, "NOCHE": {n:0, p:0} };
+        let cecoData = {};
+
+        data.forEach(d => {
+            const fStr = d.fecha instanceof Date ? d.fecha.toLocaleDateString() : d.fecha;
+            globalNom += d.nom; globalProd += d.sap;
+            if(tStats[d.turno]) { tStats[d.turno].n += d.nom; tStats[d.turno].p += d.sap; }
+            if(!cecoData[d.ceco]) cecoData[d.ceco] = { n: 0, p: 0, rows: [] };
+            cecoData[d.ceco].n += d.nom; cecoData[d.ceco].p += d.sap;
+            cecoData[d.ceco].rows.push(d);
+            bodyMem.innerHTML += `<tr><td>${fStr}</td><td>${d.ot}</td><td>${d.turno}</td><td>${d.ceco}</td><td>${d.nom}</td><td>${d.sap}</td><td style="font-weight:bold">${calcOEE(d.nom, d.sap).toFixed(1)}%</td><td>${calcGE(d.nom, d.sap).toFixed(1)}%</td></tr>`;
+        });
+
+        document.getElementById('dir-oee').innerText = calcOEE(globalNom, globalProd).toFixed(1) + "%";
+        document.getElementById('oee-m').innerText = calcOEE(tStats["MAÑANA"].n, tStats["MAÑANA"].p).toFixed(1) + "%";
+        document.getElementById('oee-t').innerText = calcOEE(tStats["TARDE"].n, tStats["TARDE"].p).toFixed(1) + "%";
+        document.getElementById('oee-n').innerText = calcOEE(tStats["NOCHE"].n, tStats["NOCHE"].p).toFixed(1) + "%";
+
+        const labels = Object.keys(cecoData).sort();
+        const oeeValues = labels.map(l => calcOEE(cecoData[l].n, cecoData[l].p).toFixed(1));
+        const geValues = labels.map(l => calcGE(cecoData[l].n, cecoData[l].p).toFixed(1));
+
+        labels.forEach((ceco, i) => {
+            gridCecoKpis.innerHTML += `<div class="card ceco-card"><h3>${ceco}</h3><div class="value">${oeeValues[i]}%</div></div>`;
+            let rowHtml = cecoData[ceco].rows.map(r => `<tr><td>${r.fecha instanceof Date ? r.fecha.toLocaleDateString() : r.fecha}</td><td>${r.ot}</td><td>${r.turno}</td><td>${r.n_art} - ${r.articulo}</td><td>${r.nom}</td><td>${r.sap}</td><td style="font-weight:bold; color:var(--primary)">${calcOEE(r.nom, r.sap).toFixed(1)}%</td><td style="font-weight:bold; color:var(--t)">${calcGE(r.nom, r.sap).toFixed(1)}%</td></tr>`).join('');
+            acordeon.innerHTML += `
+                <div class="ceco-group" id="scroll-${ceco.replace(/\s+/g, '')}">
+                    <div class="ceco-header" onclick="toggleCeco('ceco-${i}')">
+                        <span>${ceco}</span>
+                        <span>OEE: ${oeeValues[i]}% | GE: ${geValues[i]}% ▾</span>
+                    </div>
+                    <div id="ceco-${i}" class="ceco-content">
+                        <table>
+                            <thead><tr><th>Fecha</th><th>OT</th><th>Turno</th><th>Código - Artículo</th><th>Nominal</th><th>Producido</th><th style="color:var(--primary)">OEE</th><th style="color:var(--t)">GE</th></tr></thead>
+                            <tbody>${rowHtml}</tbody>
+                        </table>
+                    </div>
+                </div>`;
+        });
+
+        renderGrafico('grafico-ceco-oee', 'OEE POR CENTRO DE COSTO (ACUMULADO)', labels, oeeValues, '#1a2a6c');
+        renderGrafico('grafico-ceco-ge', 'GE POR CENTRO DE COSTO (ACUMULADO)', labels, geValues, '#e67e22');
+    }
+
+    function renderGrafico(id, titulo, x, y, color) {
+        const data = [{ x: x, y: y, type: 'bar', marker: {color: color}, text: y.map(v=>v+'%'), textposition: 'auto' }];
+        Plotly.newPlot(id, data, { title: titulo });
+        
+        document.getElementById(id).on('plotly_click', function(data){
+            const nombreCeco = data.points[0].x;
+            const targetId = 'scroll-' + nombreCeco.replace(/\s+/g, '');
+            const target = document.getElementById(targetId);
+            
+            document.querySelectorAll('.ceco-group').forEach(el => el.classList.remove('highlight-select'));
+            if(target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+                const content = target.querySelector('.ceco-content');
+                if(!content.classList.contains('open')) content.classList.add('open');
+                target.classList.add('highlight-select');
+                setTimeout(() => { target.classList.remove('highlight-select'); }, 1500);
+            }
+        });
+    }
+
+    function renderTablaOriginal(data) {
+        if(data.length === 0) {
+            document.getElementById('out-tabla').innerHTML = "No hay datos cargados.";
+            return;
+        }
+        let html = `<table><thead><tr><th>Fecha</th><th>Turno</th><th>SAP</th><th>OT</th><th>N° Art</th><th>Articulo</th><th>NOM</th><th>CECO</th></tr></thead><tbody>`;
+        data.forEach(d => {
+            const fStr = d.fecha instanceof Date ? d.fecha.toLocaleDateString() : d.fecha;
+            html += `<tr><td>${fStr}</td><td>${d.turno}</td><td>${d.sap}</td><td>${d.ot}</td><td>${d.n_art}</td><td>${d.articulo}</td><td>${d.nom}</td><td>${d.ceco}</td></tr>`;
+        });
+        document.getElementById('out-tabla').innerHTML = html + `</tbody></table>`;
+    }
+</script>
+</body>
+</html>
