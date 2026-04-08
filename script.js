@@ -1,125 +1,122 @@
 // ===============================
-// DETECCIÓN DE DISPOSITIVO
+// DATA GLOBAL
 // ===============================
-const ES_CELULAR = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+let rawDataStore = [];
+
+const USUARIO = "gpgobbi4";
+const REPO = "OEE-y-GE-Planta-RII";
 
 // ===============================
-// MAPEO DE MESES (estructura repo)
+// UTILIDADES
 // ===============================
-const MESES = {
-    "01": "01_Enero",
-    "02": "02_Febrero",
-    "03": "03_Marzo",
-    "04": "04_Abril",
-    "05": "05_Mayo",
-    "06": "06_Junio",
-    "07": "07_Julio",
-    "08": "08_Agosto",
-    "09": "09_Septiembre",
-    "10": "10_Octubre",
-    "11": "11_Noviembre",
-    "12": "12_Diciembre"
-};
+const mesesNombre = [
+    "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+];
 
 // ===============================
-// CARGA AUTOMÁTICA AL ABRIR
+// ACTUALIZAR SELECTOR AÑO
 // ===============================
-window.addEventListener('DOMContentLoaded', async () => {
-    if (ES_CELULAR) {
-        await cargarMesCalendarioActual();
-    } else {
-        await cargarAnioCompleto();
+function actualizarSelectorAnio() {
+    const sel = document.getElementById("selector-anio");
+    if (!sel) return;
+
+    const anios = [...new Set(
+        rawDataStore.map(d => {
+            const f = d.fecha instanceof Date ? d.fecha : new Date(d.fecha);
+            return f.getFullYear();
+        })
+    )].sort((a,b)=>a-b);
+
+    sel.innerHTML = '<option value="">Seleccione año</option>';
+    anios.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
+}
+
+document.getElementById("selector-anio").addEventListener("change", e => {
+    const anio = parseInt(e.target.value);
+    if (!anio) {
+        document.getElementById("resumen-anual").style.display = "none";
+        return;
     }
+    mostrarResumenAnual(anio);
 });
 
 // ===============================
-// BÚSQUEDA MANUAL POR FECHA
-// (NO SE TOCA COMPORTAMIENTO)
+// RESUMEN ANUAL
 // ===============================
-async function buscarArchivo() {
-    const fechaInput = document.getElementById('fechaBusqueda').value;
-    const contenedor = document.getElementById('resultado');
+function mostrarResumenAnual(anio) {
+    const datos = rawDataStore.filter(d => {
+        const f = d.fecha instanceof Date ? d.fecha : new Date(d.fecha);
+        return f.getFullYear() === anio;
+    });
 
-    if (!fechaInput) {
-        alert("Por favor, selecciona una fecha.");
-        return;
-    }
+    if (!datos.length) return;
 
-    const [anio, mes, dia] = fechaInput.split('-');
-    const carpetaMes = MESES[mes];
-    const nombreArchivo = `${dia}-${mes}-${anio}.xlsx`;
-    const rutaFinal = `data/${anio}/${carpetaMes}/${nombreArchivo}`;
+    document.getElementById("resumen-anual").style.display = "block";
 
-    contenedor.innerHTML = "<p>Buscando archivo...</p>";
+    // KPIs
+    const totalNom = datos.reduce((a,b)=>a+b.nom,0);
+    const totalProd = datos.reduce((a,b)=>a+b.sap,0);
 
-    try {
-        const response = await fetch(rutaFinal);
-        if (!response.ok) {
-            throw new Error("No existe registro para esta fecha.");
-        }
+    document.getElementById("kpis-anuales").innerHTML = `
+        <div class="card">
+            <h4>OEE Anual</h4>
+            <div>${calcOEE(totalNom,totalProd).toFixed(1)}%</div>
+        </div>
+        <div class="card">
+            <h4>Producción Total</h4>
+            <div>${totalProd.toLocaleString()}</div>
+        </div>
+    `;
 
-        const arrayBuffer = await response.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
+    // Resumen mensual
+    const meses = {};
+    datos.forEach(d => {
+        const f = d.fecha instanceof Date ? d.fecha : new Date(d.fecha);
+        const m = f.getMonth();
+        if(!meses[m]) meses[m] = {n:0,p:0};
+        meses[m].n += d.nom;
+        meses[m].p += d.sap;
+    });
 
-        const htmlTable = XLSX.utils.sheet_to_html(worksheet);
-        contenedor.innerHTML = htmlTable;
+    let html = `<table>
+        <thead><tr><th>Mes</th><th>OEE</th><th>Producción</th></tr></thead><tbody>`;
 
-    } catch (error) {
-        contenedor.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
-    }
+    const x=[],y=[];
+    Object.keys(meses).sort((a,b)=>a-b).forEach(m=>{
+        html+=`
+        <tr onclick="aplicarFiltroMes(${anio},${m})" style="cursor:pointer">
+            <td>${mesesNombre[m]}</td>
+            <td>${calcOEE(meses[m].n,meses[m].p).toFixed(1)}%</td>
+            <td>${meses[m].p.toLocaleString()}</td>
+        </tr>`;
+        x.push(mesesNombre[m]);
+        y.push(meses[m].p);
+    });
+    html+="</tbody></table>";
+
+    document.getElementById("tabla-resumen-mes").innerHTML = html;
+
+    Plotly.newPlot("grafico-anual",[{
+        x,y,type:"bar"
+    }],{title:`Producción mensual ${anio}`});
 }
 
 // ===============================
-// CARGA AÑO COMPLETO (PC)
+// BAJAR A VISTA MENSUAL
 // ===============================
-async function cargarAnioCompleto() {
-    const anio = new Date().getFullYear();
+function aplicarFiltroMes(anio, mes) {
+    const filtrado = rawDataStore.filter(d => {
+        const f = d.fecha instanceof Date ? d.fecha : new Date(d.fecha);
+        return f.getFullYear() === anio && f.getMonth() === mes;
+    });
 
-    for (const mesNum in MESES) {
-        await cargarMes(anio, mesNum);
-    }
+    procesarInformacion(filtrado);
+    renderTablaOriginal(filtrado);
 }
 
 // ===============================
-// CARGA MES CALENDARIO ACTUAL (CELULAR)
+// EL RESTO DE TU SCRIPT ORIGINAL
+// (cargarDesdeReservorio, procesarFilasDirecto,
+// calcOEE, procesarInformacion, renderGrafico, etc.)
 // ===============================
-async function cargarMesCalendarioActual() {
-    const hoy = new Date();
-    const anio = hoy.getFullYear();
-    const mesNum = String(hoy.getMonth() + 1).padStart(2, '0');
-
-    await cargarMes(anio, mesNum);
-}
-
-// ===============================
-// CARGA GENÉRICA DE UN MES
-// (MISMA LÓGICA QUE ANTES)
-// ===============================
-async function cargarMes(anio, mesNum) {
-    const carpetaMes = MESES[mesNum];
-    const promesas = [];
-
-    for (let d = 1; d <= 31; d++) {
-        const dia = String(d).padStart(2, '0');
-        const archivo = `${dia}-${mesNum}-${anio}.xlsx`;
-        const url = `data/${anio}/${carpetaMes}/${archivo}`;
-        promesas.push(fetchSilencioso(url));
-    }
-
-    await Promise.all(promesas);
-}
-
-// ===============================
-// FETCH SILENCIOSO
-// ===============================
-async function fetchSilencioso(url) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) return;
-        await response.arrayBuffer();
-    } catch {
-        return;
-    }
-}
