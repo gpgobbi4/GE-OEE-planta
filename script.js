@@ -2,14 +2,38 @@
 // DETECCIÓN DE DISPOSITIVO
 // ===============================
 const ES_CELULAR = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const FILAS_INICIALES = ES_CELULAR ? 200 : 2000;
-const STEP = 200;
-
-let rowsGlobales = [];
-let offset = 0;
 
 // ===============================
-// FUNCIÓN PRINCIPAL
+// MAPEO DE MESES (estruct. real repo)
+// ===============================
+const MESES = {
+    "01": "01_Enero",
+    "02": "02_Febrero",
+    "03": "03_Marzo",
+    "04": "04_Abril",
+    "05": "05_Mayo",
+    "06": "06_Junio",
+    "07": "07_Julio",
+    "08": "08_Agosto",
+    "09": "09_Septiembre",
+    "10": "10_Octubre",
+    "11": "11_Noviembre",
+    "12": "12_Diciembre"
+};
+
+// ===============================
+// CARGA AUTOMÁTICA AL INICIAR
+// ===============================
+window.addEventListener('DOMContentLoaded', async () => {
+    if (ES_CELULAR) {
+        await cargarMesActual();
+    } else {
+        await cargarAnioCompleto();
+    }
+});
+
+// ===============================
+// FUNCIÓN PRINCIPAL DE BÚSQUEDA
 // ===============================
 async function buscarArchivo() {
     const fechaInput = document.getElementById('fechaBusqueda').value;
@@ -21,91 +45,80 @@ async function buscarArchivo() {
     }
 
     const [anio, mes, dia] = fechaInput.split('-');
+    const carpetaMes = MESES[mes];
 
-    const mesesMap = {
-        "01": "01_Enero", "02": "02_Febrero", "03": "03_Marzo",
-        "04": "04_Abril", "05": "05_Mayo", "06": "06_Junio",
-        "07": "07_Julio", "08": "08_Agosto", "09": "09_Septiembre",
-        "10": "10_Octubre", "11": "11_Noviembre", "12": "12_Diciembre"
-    };
-
-    const carpetaMes = mesesMap[mes];
     const nombreArchivo = `${dia}-${mes}-${anio}.xlsx`;
-    const rutaFinal = `data/${anio}/${carpetaMes}/${nombreArchivo}`;
+    const ruta = `data/${anio}/${carpetaMes}/${nombreArchivo}`;
 
     contenedor.innerHTML = "<p>Buscando archivo...</p>";
 
     try {
-        const response = await fetch(rutaFinal);
+        const response = await fetch(ruta);
         if (!response.ok) throw new Error("No existe registro para esta fecha.");
 
-        const arrayBuffer = await response.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const buffer = await response.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-        rowsGlobales = XLSX.utils.sheet_to_json(sheet, {
-            header: 1,
-            blankrows: false
-        });
-
-        offset = 0;
-        renderizarTabla(contenedor, true);
+        const tableHTML = XLSX.utils.sheet_to_html(sheet);
+        contenedor.innerHTML = tableHTML;
 
     } catch (error) {
-        contenedor.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+        contenedor.innerHTML = `<p style="color:red;">${error.message}</p>`;
     }
 }
 
 // ===============================
-// RENDER DE TABLA
+// CARGA AÑO COMPLETO (PC)
 // ===============================
-function renderizarTabla(contenedor, reset = false) {
-    if (reset) {
-        contenedor.innerHTML = `
-            ${ES_CELULAR ? `
-            <p style="color:#b45309; font-weight:bold;">
-                📱 Vista optimizada para celular – archivo con ${rowsGlobales.length} filas
-            </p>` : ''}
-            <div class="table-container">
-                <table>
-                    <tbody id="tabla-body"></tbody>
-                </table>
-            </div>
-            ${ES_CELULAR ? `
-            <button id="btn-mas" onclick="mostrarMasFilas()"
-                style="margin-top:15px; padding:10px 20px;
-                       background:#27ae60; color:#fff;
-                       border:none; border-radius:6px;
-                       font-weight:bold; cursor:pointer;">
-                Mostrar más filas
-            </button>` : ''}
-        `;
-    }
+async function cargarAnioCompleto() {
+    const anio = new Date().getFullYear();
 
-    mostrarMasFilas();
+    for (const mesNum in MESES) {
+        const carpetaMes = MESES[mesNum];
+        await cargarMes(anio, mesNum, carpetaMes);
+    }
+}
+
+// ===============================
+// CARGA MES CALENDARIO ACTUAL (CELULAR)
+// ===============================
+async function cargarMesActual() {
+    const hoy = new Date();
+    const anio = hoy.getFullYear();
+    const mesNum = String(hoy.getMonth() + 1).padStart(2, '0');
+    const carpetaMes = MESES[mesNum];
+
+    await cargarMes(anio, mesNum, carpetaMes);
 }
 
 // ===============================
-// MOSTRAR MÁS FILAS (SOLO CELULAR)
+// CARGA GENÉRICA DE UN MES
 // ===============================
-function mostrarMasFilas() {
-    const tbody = document.getElementById('tabla-body');
-    const slice = rowsGlobales.slice(offset, offset + (ES_CELULAR ? STEP : FILAS_INICIALES));
+async function cargarMes(anio, mesNum, carpetaMes) {
+    const promesas = [];
 
-    slice.forEach(fila => {
-        const tr = document.createElement('tr');
-        fila.forEach(celda => {
-            const td = document.createElement('td');
-            td.textContent = celda ?? '';
-            tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-    });
+    for (let d = 1; d <= 31; d++) {
+        const dia = String(d).padStart(2, '0');
+        const archivo = `${dia}-${mesNum}-${anio}.xlsx`;
+        const url = `data/${anio}/${carpetaMes}/${archivo}`;
 
-    offset += slice.length;
+        promesas.push(fetchSilencioso(url));
+    }
 
-    if (ES_CELULAR && offset >= rowsGlobales.length) {
-        const btn = document.getElementById('btn-mas');
-        if (btn) btn.style.display = 'none';
+    await Promise.all(promesas);
+}
+
+// ===============================
+// FETCH SILENCIOSO (no rompe)
+// ===============================
+async function fetchSilencioso(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return;
+        await response.arrayBuffer();
+    } catch {
+        return;
     }
 }
+``
