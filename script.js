@@ -4,7 +4,7 @@
 const ES_CELULAR = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 // ===============================
-// MAPEO DE MESES (estruct. real repo)
+// MAPEO DE MESES (estructura repo)
 // ===============================
 const MESES = {
     "01": "01_Enero",
@@ -22,18 +22,19 @@ const MESES = {
 };
 
 // ===============================
-// CARGA AUTOMÁTICA AL INICIAR
+// CARGA AUTOMÁTICA AL ABRIR
 // ===============================
 window.addEventListener('DOMContentLoaded', async () => {
     if (ES_CELULAR) {
-        await cargarMesActual();
+        await cargarMesCalendarioActual();
     } else {
         await cargarAnioCompleto();
     }
 });
 
 // ===============================
-// FUNCIÓN PRINCIPAL DE BÚSQUEDA
+// BÚSQUEDA MANUAL POR FECHA
+// (NO SE TOCA COMPORTAMIENTO)
 // ===============================
 async function buscarArchivo() {
     const fechaInput = document.getElementById('fechaBusqueda').value;
@@ -46,25 +47,27 @@ async function buscarArchivo() {
 
     const [anio, mes, dia] = fechaInput.split('-');
     const carpetaMes = MESES[mes];
-
     const nombreArchivo = `${dia}-${mes}-${anio}.xlsx`;
-    const ruta = `data/${anio}/${carpetaMes}/${nombreArchivo}`;
+    const rutaFinal = `data/${anio}/${carpetaMes}/${nombreArchivo}`;
 
     contenedor.innerHTML = "<p>Buscando archivo...</p>";
 
     try {
-        const response = await fetch(ruta);
-        if (!response.ok) throw new Error("No existe registro para esta fecha.");
+        const response = await fetch(rutaFinal);
+        if (!response.ok) {
+            throw new Error("No existe registro para esta fecha.");
+        }
 
-        const buffer = await response.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const arrayBuffer = await response.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
 
-        const tableHTML = XLSX.utils.sheet_to_html(sheet);
-        contenedor.innerHTML = tableHTML;
+        const htmlTable = XLSX.utils.sheet_to_html(worksheet);
+        contenedor.innerHTML = htmlTable;
 
     } catch (error) {
-        contenedor.innerHTML = `<p style="color:red;">${error.message}</p>`;
+        contenedor.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
     }
 }
 
@@ -75,34 +78,33 @@ async function cargarAnioCompleto() {
     const anio = new Date().getFullYear();
 
     for (const mesNum in MESES) {
-        const carpetaMes = MESES[mesNum];
-        await cargarMes(anio, mesNum, carpetaMes);
+        await cargarMes(anio, mesNum);
     }
 }
 
 // ===============================
 // CARGA MES CALENDARIO ACTUAL (CELULAR)
 // ===============================
-async function cargarMesActual() {
+async function cargarMesCalendarioActual() {
     const hoy = new Date();
     const anio = hoy.getFullYear();
     const mesNum = String(hoy.getMonth() + 1).padStart(2, '0');
-    const carpetaMes = MESES[mesNum];
 
-    await cargarMes(anio, mesNum, carpetaMes);
+    await cargarMes(anio, mesNum);
 }
 
 // ===============================
 // CARGA GENÉRICA DE UN MES
+// (MISMA LÓGICA QUE ANTES)
 // ===============================
-async function cargarMes(anio, mesNum, carpetaMes) {
+async function cargarMes(anio, mesNum) {
+    const carpetaMes = MESES[mesNum];
     const promesas = [];
 
     for (let d = 1; d <= 31; d++) {
         const dia = String(d).padStart(2, '0');
         const archivo = `${dia}-${mesNum}-${anio}.xlsx`;
         const url = `data/${anio}/${carpetaMes}/${archivo}`;
-
         promesas.push(fetchSilencioso(url));
     }
 
@@ -110,7 +112,7 @@ async function cargarMes(anio, mesNum, carpetaMes) {
 }
 
 // ===============================
-// FETCH SILENCIOSO (no rompe)
+// FETCH SILENCIOSO
 // ===============================
 async function fetchSilencioso(url) {
     try {
@@ -121,4 +123,3 @@ async function fetchSilencioso(url) {
         return;
     }
 }
-``
